@@ -1,21 +1,24 @@
+Exec { path => [ '/bin/', '/sbin/' , '/usr/bin/', '/usr/sbin/' ] }
+
 define users::user (
-  $name,
+  $user,
   $home,
-  $uid ,
-  $dotfilesrepo,
+  $uid,
+  $dotfilesrepo = undef,
   $ensure     = present,
-  $gitname    = "$title",
-  $gitemail   = "$email",
+  $gitname    = undef,
+  $gitemail   = undef,
   $managehome = true,
   $groups     = [],
-  $password   = 'undef',
+  $password   = undef,
+  $smbpass    = undef,
   $ssh_keys   = {},
-  $email      = 'undef',
+  $email      = undef,
   $shell      = '/bin/bash'
   ) {
   user { $title:
     ensure     => $ensure,
-    name       => $name,
+    name       => $user,
     managehome => $managehome,
     home       => $home,
     uid        => $uid,
@@ -29,14 +32,15 @@ define users::user (
       $ssh_defaults = {
         'ensure' => 'present',
         'type'   => 'ssh-rsa',
-        'user'   => $name,
+        'user'   => $user,
         require  => User["$title"],
-      } create_resources(ssh_authorized_key, $ssh_keys, $ssh_defaults)
+      }
+      create_resources(ssh_authorized_key, $ssh_keys, $ssh_defaults)
     }
 
     if $email {
       mailalias { "${title}-mailalias":
-        name      => $name,
+        name      => $user,
         ensure    => present,
         recipient => $email,
         require   => User["$title"],
@@ -47,8 +51,8 @@ define users::user (
       file { "$home/.dotfiles":
         ensure => directory,
         path   => "$home/.dotfiles",
-        owner  => $name,
-        group  => $name,
+        owner  => $user,
+        group  => $user,
       }
       vcsrepo { "${home}/.dotfiles":
         ensure   => latest,
@@ -56,7 +60,7 @@ define users::user (
         path     => "${home}/.dotfiles",
         provider => git,
         source   => $dotfilesrepo,
-        user     => $name,
+        user     => $user,
         require  => User["$title"],
       }
     }
@@ -66,9 +70,9 @@ define users::user (
         command     => "git config --global user.name '$title'",
         path        => "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         unless      => "grep name .gitconfig",
-        user        => "$name",
-        cwd         => "/home/${name}/",
-        environment => ["HOME=/home/$name"],
+        user        => "$user",
+        cwd         => "/home/${user}/",
+        environment => ["HOME=/home/$user"],
         require     => [ User["$title"], Package['git'] ],
       }
     }
@@ -78,10 +82,19 @@ define users::user (
         command     => "git config --global user.email $email",
         path        => "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         unless      => "grep email .gitconfig",
-        user        => "$name",
-        cwd         => "/home/${name}/",
-        environment => ["HOME=/home/$name"],
+        user        => "$user",
+        cwd         => "/home/${user}/",
+        environment => ["HOME=/home/$user"],
         require     => [ User["$title"], Package['git'] ],
+      }
+    }
+
+    if $smbpass {
+      exec { "${title}-smb_user":
+        command => "echo ${smbpass} | tee - | smbpasswd -a ${user} -s",
+        unless  => "echo ${smbpass} | tee - | smbclient //${::hostname}/printers -U ${user}",
+        path    => "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        require => User["${user}"],
       }
     }
 
